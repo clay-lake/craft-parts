@@ -20,6 +20,7 @@ import logging
 import multiprocessing
 import os
 import sys
+from shutil import rmtree
 from collections.abc import Callable
 from multiprocessing.connection import Connection
 from pathlib import Path
@@ -32,9 +33,7 @@ from . import errors
 logger = logging.getLogger(__name__)
 
 
-def chroot(
-    path: Path, target: Callable, *args: Any, **kwargs: Any
-) -> Any:  # noqa: ANN401
+def chroot(path: Path, target: Callable, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
     """Execute a callable in a chroot environment.
 
     :param path: The new filesystem root.
@@ -117,6 +116,13 @@ _linux_mounts: list[_Mount] = [
     _Mount("sysfs", "sysfs", "/sys", None),
     # Device nodes require MS_REC to be bind mounted inside a container.
     _Mount(None, "/dev", "/dev", ["--rbind", "--make-rprivate"]),
+    _Mount(None, "/etc/apt", "/etc/apt", ["--rbind"]),
+    # TODO: do we need all of these mounts for ca-certificates?
+    _Mount(
+        None, "/usr/share/ca-certificates/", "/usr/share/ca-certificates/", ["--rbind"]
+    ),
+    _Mount(None, "/etc/ssl/certs/", "/etc/ssl/certs/", ["--rbind"]),
+    _Mount(None, "/etc/ca-certificates.conf", "/etc/ca-certificates.conf", ["--bind"]),
 ]
 
 
@@ -128,12 +134,6 @@ def _setup_chroot_linux(path: Path) -> None:
     #
     # There's no need to restore the file to its original condition because
     # this operation happens on a temporary filesystem layer.
-    resolv_conf = path / "etc/resolv.conf"
-    if resolv_conf.is_symlink():
-        resolv_conf.unlink()
-        resolv_conf.touch()
-    elif not resolv_conf.exists() and resolv_conf.parent.is_dir():
-        resolv_conf.touch()
 
     pid = os.getpid()
     for entry in _linux_mounts:
@@ -144,7 +144,27 @@ def _setup_chroot_linux(path: Path) -> None:
             args.append(f"-t{entry.fstype}")
 
         mountpoint = path / entry.mountpoint.lstrip("/")
+        src = Path(entry.src)
 
+        if src.is_dir():
+            # remove existing content of dir
+            if mountpoint.exists():
+                rmtree(mountpoint)
+
+            # prep mount point
+            mountpoint.mkdir(parents=True, exist_ok=True)
+
+        elif src.is_file():
+            # remove existing file
+            if mountpoint.exists():
+                mountpoint.unlink()
+            else:
+                mountpoint.parent.mkdir(parents=True, exist_ok=True)
+
+            # prep mount point
+            mountpoint.touch()
+
+        logger.debug(f"final mountpoint exists {mountpoint.exists()}")
         # Only mount if mountpoint exists.
         if mountpoint.exists():
             logger.debug("[pid=%d] mount %r on chroot", pid, str(mountpoint))
