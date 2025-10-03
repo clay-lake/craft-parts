@@ -16,21 +16,19 @@
 
 """Unit tests for the lifecycle manager."""
 
-from __future__ import annotations
-
 import sys
 import textwrap
 import time
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from unittest.mock import ANY, call
 
 import craft_parts
+import craft_parts.utils.partition_utils
 import pytest
 import yaml
 from craft_parts import errors, lifecycle_manager
 from craft_parts.plugins import nil_plugin
-from craft_parts.plugins.make_plugin import MakePluginProperties
 from craft_parts.state_manager import states
 
 from tests.unit.common_plugins import NonStrictTestPlugin, StrictTestPlugin
@@ -39,7 +37,7 @@ from tests.unit.common_plugins import NonStrictTestPlugin, StrictTestPlugin
 @pytest.fixture
 def mock_available_plugins(monkeypatch):
     available = {"strict": StrictTestPlugin, "nonstrict": NonStrictTestPlugin}
-    monkeypatch.setattr(craft_parts.plugins.plugins, "_plugins", available)
+    monkeypatch.setattr(craft_parts.plugins.plugins, "_PLUGINS", available)
 
 
 def create_data(part_name: str, plugin_name: str) -> dict[str, Any]:
@@ -216,6 +214,7 @@ class TestLifecycleManager:
                 track_stage_packages=False,
                 base_layer_dir=None,
                 base_layer_hash=None,
+                use_host_sources=False,
             )
         ]
 
@@ -409,9 +408,7 @@ class TestPluginProperties:
 
         assert len(lf._part_list) == 1
         part = lf._part_list[0]
-        assert cast(MakePluginProperties, part.plugin_properties).make_parameters == [
-            "-DTEST_PARAMETER"
-        ]
+        assert part.plugin_properties.make_parameters == ["-DTEST_PARAMETER"]
 
     def test_fallback_plugin_name(self, new_dir, mocker):
         mocker.patch("craft_parts.sequencer.Sequencer")
@@ -430,9 +427,7 @@ class TestPluginProperties:
 
         assert len(lf._part_list) == 1
         part = lf._part_list[0]
-        assert cast(MakePluginProperties, part.plugin_properties).make_parameters == [
-            "-DTEST_PARAMETER"
-        ]
+        assert part.plugin_properties.make_parameters == ["-DTEST_PARAMETER"]
 
     def test_invalid_plugin_name(self, new_dir):
         with pytest.raises(errors.InvalidPlugin) as raised:

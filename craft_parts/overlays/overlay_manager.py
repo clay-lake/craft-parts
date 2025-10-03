@@ -21,7 +21,7 @@ import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal, TypeVar, cast
+from typing import Any, Literal
 
 from craft_parts import packages
 from craft_parts.infos import ProjectInfo
@@ -32,10 +32,8 @@ from .overlay_fs import OverlayFS
 
 logger = logging.getLogger(__name__)
 
-_T = TypeVar("_T")
 
-
-def _defer_evaluation(method: Callable[..., _T]) -> Callable[..., _T]:
+def _defer_evaluation(method: Callable) -> Callable:
     """Wrap methods to defer evaluation.
 
     Defer evaluation of proxied class methods to happen at execution time.
@@ -48,9 +46,9 @@ def _defer_evaluation(method: Callable[..., _T]) -> Callable[..., _T]:
     if instance is None or method_name is None:
         raise TypeError("Only bound methods can be deferred")
 
-    def _thunk(*args: Any, **kwargs: Any) -> _T:
-        method = cast(Callable[..., _T], getattr(instance, method_name))
-        return method(*args, **kwargs)
+    def _thunk(*args: Any, **kwargs: Any) -> None:
+        method = getattr(instance, method_name)
+        method(*args, **kwargs)
 
     return _thunk
 
@@ -62,6 +60,8 @@ class OverlayManager:
     :param part_list: A list of all parts in the project.
     :param base_layer_dir: The directory containing the overlay base, or None
         if the project doesn't use overlay parameters.
+    :param use_host_sources: Configure chroot to use package sources from
+        the the host environment.
     :param cache_level: The number of part layers to be mounted before the
         package cache.
     """
@@ -73,12 +73,14 @@ class OverlayManager:
         part_list: list[Part],
         base_layer_dir: Path | None,
         cache_level: int,
+        use_host_sources: bool = False,
     ) -> None:
         self._project_info = project_info
         self._part_list = part_list
         self._layer_dirs = [p.part_layer_dir for p in part_list]
         self._overlay_fs: OverlayFS | None = None
         self._base_layer_dir = base_layer_dir
+        self._use_host_sources = use_host_sources
         self._cache_level = cache_level
 
     @property
@@ -181,8 +183,11 @@ class OverlayManager:
         mount_dir = self._project_info.overlay_mount_dir
         # Ensure we always run refresh_packages_list by resetting the cache
         packages.Repository.refresh_packages_list.cache_clear()  # type: ignore[attr-defined]
+
         chroot.chroot(
-            mount_dir, _defer_evaluation(packages.Repository.refresh_packages_list)
+            mount_dir,
+            _defer_evaluation(packages.Repository.refresh_packages_list),
+            use_host_sources=self._use_host_sources,
         )
 
     def download_packages(self, package_names: list[str]) -> None:
@@ -197,7 +202,8 @@ class OverlayManager:
         chroot.chroot(
             mount_dir,
             _defer_evaluation(packages.Repository.download_packages),
-            package_names,
+            use_host_sources=self._use_host_sources,
+            args=(package_names,),
         )
 
     def install_packages(self, package_names: list[str]) -> None:
@@ -211,9 +217,10 @@ class OverlayManager:
         mount_dir = self._project_info.overlay_mount_dir
         chroot.chroot(
             mount_dir,
-            _defer_evaluation(packages.Repository.install_packages),
-            package_names,
-            refresh_package_cache=False,
+            packages.Repository.install_packages,
+            use_host_sources=self._use_host_sources,
+            args=(package_names,),
+            kwargs={"refresh_package_cache": False},
         )
 
 

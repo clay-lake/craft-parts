@@ -113,6 +113,7 @@ class LifecycleManager:
         project_vars: dict[str, str] | ProjectVarInfo | None = None,
         partitions: list[str] | None = None,
         filesystem_mounts: dict[str, Any] | None = None,
+        use_host_sources: bool = False,
         usrmerged_by_default: bool = False,
         **custom_args: Any,  # custom passthrough args
     ) -> None:
@@ -121,7 +122,7 @@ class LifecycleManager:
         if not re.match("^[A-Za-z][0-9A-Za-z_]*$", application_name):
             raise errors.InvalidApplicationName(application_name)
 
-        if not isinstance(all_parts, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
+        if not isinstance(all_parts, dict):
             raise TypeError("parts definition must be a dictionary")
 
         if not application_package_name:
@@ -163,7 +164,7 @@ class LifecycleManager:
 
         executor.expand_environment(parts_data, info=project_info)
 
-        part_list: list[Part] = []
+        part_list = []
         for name, spec in parts_data.items():
             part = _build_part(name, spec, project_dirs, strict_mode, partitions)
             _validate_part_dependencies(part, parts_data)
@@ -214,6 +215,7 @@ class LifecycleManager:
             track_stage_packages=track_stage_packages,
             base_layer_dir=base_layer_dir,
             base_layer_hash=layer_hash,
+            use_host_sources=use_host_sources,
         )
         self._project_info = project_info
         # pylint: enable=too-many-locals
@@ -334,7 +336,7 @@ def _build_part(
 
     :return: A :class:`Part` object corresponding to the given part specification.
     """
-    if not isinstance(spec, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
+    if not isinstance(spec, dict):
         raise errors.PartSpecificationError(
             part_name=name, message="part definition is malformed"
         )

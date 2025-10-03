@@ -53,7 +53,7 @@ class Executor:
     :param ignore_patterns: File patterns to ignore when pulling local sources.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         part_list: list[Part],
@@ -64,6 +64,7 @@ class Executor:
         ignore_patterns: list[str] | None = None,
         base_layer_dir: Path | None = None,
         base_layer_hash: LayerHash | None = None,
+        use_host_sources: bool = False,
     ) -> None:
         self._part_list = sort_parts(part_list)
         self._project_info = project_info
@@ -73,6 +74,7 @@ class Executor:
         self._base_layer_hash = base_layer_hash
         self._handler: dict[str, PartHandler] = {}
         self._ignore_patterns = ignore_patterns
+        self._use_host_sources = use_host_sources
 
         # The cache layer level is set to the first part that doesn't organize
         # to the overlay coming after a part that organizes to the overlay.
@@ -90,6 +92,7 @@ class Executor:
             project_info=self._project_info,
             part_list=self._part_list,
             base_layer_dir=base_layer_dir,
+            use_host_sources=use_host_sources,
             cache_level=cache_level,
         )
 
@@ -270,17 +273,23 @@ class Executor:
         for part in self._part_list:
             self._create_part_handler(part)
 
-        build_packages: set[str] = set(self._extra_build_packages or ())
+        build_packages = set()
         for handler in self._handler.values():
             build_packages.update(handler.build_packages)
+
+        if self._extra_build_packages:
+            build_packages.update(self._extra_build_packages)
 
         logger.info("Installing build-packages")
         packages.Repository.install_packages(sorted(build_packages))
 
     def _install_build_snaps(self) -> None:
-        build_snaps: set[str] = set(self._extra_build_snaps or ())
+        build_snaps = set()
         for handler in self._handler.values():
             build_snaps.update(handler.build_snaps)
+
+        if self._extra_build_snaps:
+            build_snaps.update(self._extra_build_snaps)
 
         if not build_snaps:
             return
